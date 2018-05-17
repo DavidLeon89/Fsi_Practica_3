@@ -4,6 +4,7 @@
 
 import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
 
 #le pasa un datos y el tamaño maximo a representar, te devuelve un vector en el que la posicion corresponde con el dato
 #represtar 
@@ -13,6 +14,7 @@ def one_hot(x, n):
     :param n: number of bits
     :return: one hot code
     """
+
     o_h = np.zeros(n)  # llenamos todo a ceros y en la posicion de x metemos un 1
     o_h[x] = 1
 
@@ -28,8 +30,8 @@ def one_hot(x, n):
     return o_h
 
 
-num_classes = 3 #numero de clases
-batch_size = 4
+num_classes = 4 #numero de clases
+batch_size = 4 #tamaño del lote
 
 
 # --------------------------------------------------
@@ -39,8 +41,8 @@ batch_size = 4
 # --------------------------------------------------
 
 def dataSource(paths, batch_size):
-    min_after_dequeue = 10
-    capacity = min_after_dequeue + 3 * batch_size
+    min_after_dequeue = 10 #valor que retrasa inicio de entrenamiento
+    capacity = min_after_dequeue + 3 * batch_size #limite de memoria
 
     example_batch_list = [] #numeros que te van a dar
     label_batch_list = [] #etiquetas que haces con one_hot
@@ -48,7 +50,7 @@ def dataSource(paths, batch_size):
     #paths son todas las rutas de ficheros, enumerate enumera las listas del fichero.
     for i, p in enumerate(paths):
         #Apertura de ficheros
-        filename = tf.train.match_filenames_once(p)
+        filename = tf.train.match_filenames_once(p) #guarda la lista de archivos coincidentes con el patron
         filename_queue = tf.train.string_input_producer(filename, shuffle=False)
         reader = tf.WholeFileReader()
         #decoficacion de imagenes
@@ -56,11 +58,12 @@ def dataSource(paths, batch_size):
         image, label = tf.image.decode_jpeg(file_image), one_hot(int(i), num_classes)
         image = tf.image.resize_image_with_crop_or_pad(image, 80, 140)
         #image=tf.image.rgb_to_grayscale(image) #pasar fotos de 24 bits a 8 NO VALE PARA LAS DE 8
-        image = tf.reshape(image, [80, 140, 1])
-        image = tf.to_float(image) / 255. - 0.5
+        image = tf.reshape(image, [80, 140, 1]) #pasa la foto a tres dimension para que sea un tensor
+        image = tf.to_float(image) / 255. - 0.5 #casteo
+        #llena el buffer hasta capacity y te va dando un muestreo de los datos
         example_batch, label_batch = tf.train.shuffle_batch([image, label], batch_size=batch_size, capacity=capacity,
                                                             min_after_dequeue=min_after_dequeue)
-        example_batch_list.append(example_batch)
+        example_batch_list.append(example_batch) #agregamos la lista
         label_batch_list.append(label_batch)
 
     #tf.contact para unir
@@ -77,10 +80,11 @@ def dataSource(paths, batch_size):
 # --------------------------------------------------
 
 def myModel(X, reuse=False):
+    #creamos las capas
     with tf.variable_scope('ConvNet', reuse=reuse):
         #conv2d le pasas las imagenes (X) va a quitarle dos dimesiones a la matriz.
         o1 = tf.layers.conv2d(inputs=X, filters=32, kernel_size=3, activation=tf.nn.relu)
-        #max_pooling2d cada 4 elementos coge el mas grande
+        #max_pooling2d cada 4 elementos coge el mas grande (pdf lectura)
         o2 = tf.layers.max_pooling2d(inputs=o1, pool_size=2, strides=2)
         o3 = tf.layers.conv2d(inputs=o2, filters=64, kernel_size=3, activation=tf.nn.relu)
         o4 = tf.layers.max_pooling2d(inputs=o3, pool_size=2, strides=2)
@@ -92,9 +96,9 @@ def myModel(X, reuse=False):
 
 
 
-example_batch_train, label_batch_train = dataSource(["cos/entrenamiento/*.jpg", "infty/entrenamiento/*.jpg", "G/entrenamiento/*.jpg"], batch_size=batch_size)
-example_batch_valid, label_batch_valid = dataSource(["cos/validacion/*.jpg", "infty/validacion/*.jpg", "G/validacion/*.jpg"], batch_size=batch_size)
-example_batch_test, label_batch_test = dataSource(["cos/test/*.jpg", "infty/test/*.jpg", "G/test/*.jpg"], batch_size=batch_size)
+example_batch_train, label_batch_train = dataSource(["numeros/0/entrenamiento/*.jpg", "numeros/1/entrenamiento/*.jpg", "numeros/2/entrenamiento/*.jpg", "numeros/3/entrenamiento/*.jpg"], batch_size=batch_size)
+example_batch_valid, label_batch_valid = dataSource(["numeros/0/validacion/*.jpg", "numeros/1/validacion/*.jpg", "numeros/2/validacion/*.jpg", "numeros/3/validacion/*.jpg", ], batch_size=batch_size)
+example_batch_test, label_batch_test = dataSource(["numeros/0/test/*.jpg", "numeros/1/test/*.jpg", "numeros/2/test/*.jpg", "numeros/3/test/*.jpg"], batch_size=batch_size)
 
 
 #el reuse a true cuando usas el mismo modelo para que no se mezcle, la primera vez no necesitas true
@@ -102,6 +106,7 @@ example_batch_train_predicted = myModel(example_batch_train, reuse=False)
 example_batch_valid_predicted = myModel(example_batch_valid, reuse=True)
 example_batch_test_predicted = myModel(example_batch_test, reuse=True)
 
+#suma de cuadrados
 cost = tf.reduce_sum(tf.square(tf.cast(example_batch_train_predicted, tf.float64) - label_batch_train))
 cost_valid = tf.reduce_sum(tf.square(tf.cast(example_batch_valid_predicted, tf.float64) - label_batch_valid))
 cost_test = tf.reduce_sum(tf.square(tf.cast(example_batch_test_predicted, tf.float64) - label_batch_test))
@@ -118,29 +123,45 @@ optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01).minimize(cost)
 # --------------------------------------------------
 
 # Add ops to save and restore all the variables.
-
 saver = tf.train.Saver()
-
+graficoEntrenamiento = []
+graficoValidaciones = []
 with tf.Session() as sess:
+    #crea fichero de log
     file_writer = tf.summary.FileWriter('./logs', sess.graph)
 
+    #inicializa las variables
     sess.run(tf.local_variables_initializer())
     sess.run(tf.global_variables_initializer())
 
     # Start populating the filename queue.
-    coord = tf.train.Coordinator()
+    coord = tf.train.Coordinator() #cordina hilos
     threads = tf.train.start_queue_runners(coord=coord, sess=sess)
 
-    for _ in range(430):
+    for _ in range(300):
         sess.run(optimizer)
         if _ % 20 == 0:
             print("Iter:", _, "---------------------------------------------")
-            print(sess.run(label_batch_valid))
-            print(sess.run(example_batch_valid_predicted))
+            #print(sess.run(label_batch_valid))
+            #print(sess.run(example_batch_valid_predicted))
             print("Error:", sess.run(cost_valid))
+
+            #metemos el coste de entreno y validacion en los arrays
+            graficoEntrenamiento.append(sess.run(cost))
+            graficoValidaciones.append(sess.run(cost_valid))
+
 
     save_path = saver.save(sess, "./tmp/model.ckpt")
     print("Model saved in file: %s" % save_path)
 
     coord.request_stop()
     coord.join(threads)
+
+    #imprimimos los resultados
+    plt.title("ENTRENAMIENTO")
+    plt.plot(graficoEntrenamiento)
+    plt.show() #muestra la grafica
+
+    plt.title("Validaciones")
+    plt.plot(graficoValidaciones)
+    plt.show()  # muestra la grafica
